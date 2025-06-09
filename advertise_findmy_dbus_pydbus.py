@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 import time
 import base64
-import asyncio
-
 from gi.repository import GLib
 from pydbus import SystemBus
 from threading import Thread
-
 from Crypto.Cipher import AES
 from Crypto.Protocol.KDF import HKDF
 from Crypto.Hash import SHA256
@@ -15,19 +12,16 @@ KEY_FILE = "/home/agusti/Escriptori/Personal/myhaystack/mykeys/esp32/3XB36C.keys
 BUS_NAME = 'org.bluez'
 ADAPTER_PATH = '/org/bluez/hci0'
 ADVERTISING_INTERFACE = 'org.bluez.LEAdvertisingManager1'
-
 ADVERTISING_PATH_TEMPLATE = '/org/bluez/example/advertisement{}'
-
-LOOP_TIME = 30  # seconds
 
 class Advertisement:
     def __init__(self, rpi_data):
         self.Type = 'broadcast'
         self.ManufacturerData = {0x004C: GLib.Variant('ay', bytes([0x12]) + rpi_data)}
+        self.LocalName = 'MyAirTag'
+        self.Appearance = 0
         self.Includes = ['tx-power']
         self.TxPower = 0
-        self.LocalName = 'MyFindTag'
-        self.Appearance = 0
 
     def Release(self):
         print("🔌 Released advertisement")
@@ -39,6 +33,8 @@ class Advertisement:
                 'ManufacturerData': GLib.Variant('a{qv}', self.ManufacturerData),
                 'Includes': GLib.Variant('as', self.Includes),
                 'TxPower': GLib.Variant('n', self.TxPower),
+                'LocalName': GLib.Variant('s', self.LocalName),
+                'Appearance': GLib.Variant('q', self.Appearance),
             }
         }
 
@@ -57,6 +53,8 @@ class Advertisement:
             <property name="ManufacturerData" type="a{{qv}}" access="read"/>
             <property name="Includes" type="as" access="read"/>
             <property name="TxPower" type="n" access="read"/>
+            <property name="LocalName" type="s" access="read"/>
+            <property name="Appearance" type="q" access="read"/>
           </interface>
         </node>
         '''
@@ -69,7 +67,7 @@ def read_private_key(path):
     raise ValueError("Private key not found.")
 
 def generate_rpi(private_key, timestamp):
-    interval = timestamp // LOOP_TIME  # For testing purposes
+    interval = timestamp // 10
     salt = interval.to_bytes(4, 'big')
     rpi_key = HKDF(private_key, 16, salt, SHA256, 1, context=b'OpenHaystack')
     cipher = AES.new(rpi_key, AES.MODE_ECB)
@@ -86,7 +84,6 @@ def main():
 
     private_key = read_private_key(KEY_FILE)
 
-    #GLib.threads_init()
     Thread(target=run_loop, daemon=True).start()
 
     while True:
@@ -104,10 +101,10 @@ def main():
         bus.register_object(path, ad, ad.Introspect())
         try:
             adv_mgr.RegisterAdvertisement(path, {})
-        except Exception:
-            pass
+        except Exception as e:
+            print("Register error:", e)
 
-        time.sleep(LOOP_TIME)
+        time.sleep(10)
 
         try:
             adv_mgr.UnregisterAdvertisement(path)
